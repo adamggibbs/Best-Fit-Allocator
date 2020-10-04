@@ -150,6 +150,13 @@ void* malloc (size_t size) {
     return NULL;
   }
 
+  // pad the address
+  if( free_addr % 16 < 8){
+    free_addr = free_addr + (32 - free_addr % 16);
+  } else {
+    free_addr = free_addr + (16 - free_addr % 16);
+  }
+
   header_s* current = free_list_head;
   header_s* best    = NULL;
   while (current != NULL) {
