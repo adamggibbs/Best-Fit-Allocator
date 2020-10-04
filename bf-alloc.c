@@ -147,77 +147,122 @@ void init () {
  */
 void* malloc (size_t size) {
 
+  // if heap hasn't yet been initialized, do it
   init();
 
+  // if the requested block size is 0, return NULL because there is nothing to do
   if (size == 0) {
     return NULL;
   }
 
-  // pad the address
-  if( free_addr % 16 < 8){
-    free_addr = free_addr + (32 - free_addr % 16);
-  } else {
-    free_addr = free_addr + (16 - free_addr % 16);
-  }
-
+  
+  // going to loop through the free blocks on free LL
+  // create a pointer and point it to free LL head
+  // create a pointer to store best fit, initially set to NULL
   header_s* current = free_list_head;
   header_s* best    = NULL;
+
+  // start looping thru free LL until we reach the end
   while (current != NULL) {
 
+    // if there is an allocated block on free LL, raise an error
     if (current->allocated) {
       ERROR("Allocated block on free list", (intptr_t)current);
     }
-    
+
+    // if there is no best block and current block is => requested size,
+    // or if current block is closer to requested size than best block
+    // then make current block the best block
     if ( (best == NULL && size <= current->size) ||
 	 (best != NULL && size <= current->size && current->size < best->size) ) {
       best = current;
     }
 
+    // if best block is the exact requested size, then break the loop
+    // because we've found our prefect fit
     if (best != NULL && best->size == size) {
       break;
     }
 
+    // move down LL to check next block in free LL
     current = current->next;
     
   }
 
+  // create a pointer to eventually hold block pointer to be returned
+  // intially set to NULL
   void* new_block_ptr = NULL;
-  if (best != NULL) {
+
+  // if we found a best block, allocate it
+  // 1) remove from free LL
+  // 2) add it to the allocated LL
+  // 3) create a block pointer from best pointer
+  // 4) header pointer is best pointer and is stored in allocated LL
+   if (best != NULL) {
 
     // remove best from LL by moving pointers
+    // if prev of best is NULL then it is the head of free LL
+    // so make next of best the new head of free LL
+    // else have prev of best skip over best with its next pointer
     if (best->prev == NULL) {
       free_list_head   = best->next;
     } else {
       best->prev->next = best->next;
     }
+    // if best is not the end of the free LL
+    // then make the next of best skip over best with its prev pointer
     if (best->next != NULL) {
       best->next->prev = best->prev;
     }
 
     // add header to allocated list
+    // make the next of best the current head of allocated LL
     best->next          = allocated_list_head;
+    // make best the new head of alloacted LL
     allocated_list_head = best;
+    // make prev of best NULL
     best->prev          = NULL;
+    // if best is not the only header in LL, make best the prev of next header in LL
     if (best->next != NULL) {
       best->next->prev  = best;
     }
+    // set best to be allocated
     best->allocated     = true;
+
+    // set block pointer to be address after header--which is the pointer best
     new_block_ptr       = HEADER_TO_BLOCK(best);
     
   } else {
 
+    // pad the address for double word alignment
+    // since the header is 32 bytes, if we align for the header
+    // then the block will be double word aligned as well
+    free_addr = free_addr + (16 - free_addr % 16);
+
+    // create a pointer for the header at the next free address space
     header_s* header_ptr = (header_s*)free_addr;
+    // create a pointer for the block immediately after the header
     new_block_ptr = HEADER_TO_BLOCK(header_ptr);
 
+    // add header to the allocated LL
+    // make next for header_ptr be the current LL head
     header_ptr->next      = allocated_list_head;
+    // make header_ptr the LL head
     allocated_list_head   = header_ptr;
+    // make prev for header_ptr NULL since it's the beginning
     header_ptr->prev      = NULL;
+    // if there was a block as the LL head, then make it's prev header_ptr
     if (header_ptr->next != NULL) {
       header_ptr->next->prev = header_ptr;
     }
+    // store the size of the block in the header
     header_ptr->size      = size;
+    // set to true that the block has been allocated
     header_ptr->allocated = true;
-    
+
+    // if new free_addr has surpassed the end of the memory space
+    // then return NULL since there isn't enough space to allocate
+    // else update free_addr
     intptr_t new_free_addr = (intptr_t)new_block_ptr + size;
     if (new_free_addr > end_addr) {
 
@@ -231,6 +276,7 @@ void* malloc (size_t size) {
 
   }
 
+  // return pointer to block
   return new_block_ptr;
 
 } // malloc()
@@ -247,34 +293,45 @@ void* malloc (size_t size) {
  */
 void free (void* ptr) {
 
+  // if pointer is NULL there is nothing to free, jsut return
   if (ptr == NULL) {
     return;
   }
 
+  // get pointer to block from the header
   header_s* header_ptr = BLOCK_TO_HEADER(ptr);
 
+  // if block is not allocated then it is already free, raise an error
   if (!header_ptr->allocated) {
     ERROR("Double-free: ", (intptr_t)header_ptr);
   }
 
   // remove header from allocated LL
-  if ( ptr->next != NULL) {
-    ptr->next->prev = ptr->prev;
+  // if header is not the end of the allocated LL, adjust prev pointer of next
+  if ( header_ptr->next != NULL) {
+    header_ptr->next->prev = header_ptr->prev;
   }
-    
-  if ( ptr->prev != NULL ){
-    ptr->prev->next = ptr->next;
+
+  // if header is not head of allocated LL, adjust next pointer of prev
+  // else make next pointer the head of allocated LL
+  if ( header_ptr->prev != NULL ){
+    header_ptr->prev->next = header_ptr->next;
   } else {
-    allocated_list_head = ptr->next;
+    allocated_list_head = header_ptr->next;
   }
   
   // add header to free LL
+  // make next the current head of free LL
   header_ptr->next = free_list_head;
+  // make freed header the new head of free LL
   free_list_head   = header_ptr;
+  // make prev of freed header NULL
   header_ptr->prev = NULL;
+  // if freed header is not the only pointer in LL, make prev pointer of next the freed header
   if (header_ptr->next != NULL) {
     header_ptr->next->prev = header_ptr;
   }
+  // set the freed header to NOT allocated
   header_ptr->allocated = false;
 
 } // free()
