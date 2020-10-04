@@ -90,6 +90,9 @@ static intptr_t end_addr   = 0;
 
 /** The head of the free list. */
 static header_s* free_list_head = NULL;
+
+/** The head of the allocated list. */
+static header_s* allocated_list_head = NULL;
 // ==============================================================================
 
 
@@ -181,6 +184,7 @@ void* malloc (size_t size) {
   void* new_block_ptr = NULL;
   if (best != NULL) {
 
+    // remove best from LL by moving pointers
     if (best->prev == NULL) {
       free_list_head   = best->next;
     } else {
@@ -189,19 +193,28 @@ void* malloc (size_t size) {
     if (best->next != NULL) {
       best->next->prev = best->prev;
     }
-    best->prev       = NULL;
-    best->next       = NULL;
 
-    best->allocated = true;
-    new_block_ptr   = HEADER_TO_BLOCK(best);
+    // add header to allocated list
+    best->next          = allocated_list_head;
+    allocated_list_head = best;
+    best->prev          = NULL;
+    if (best->next != NULL) {
+      best->next->prev  = best;
+    }
+    best->allocated     = true;
+    new_block_ptr       = HEADER_TO_BLOCK(best);
     
   } else {
 
     header_s* header_ptr = (header_s*)free_addr;
     new_block_ptr = HEADER_TO_BLOCK(header_ptr);
 
-    header_ptr->next      = NULL;
+    header_ptr->next      = allocated_list_head;
+    allocated_list_head   = header_ptr;
     header_ptr->prev      = NULL;
+    if (header_ptr->next != NULL) {
+      header_ptr->next->prev = header_ptr;
+    }
     header_ptr->size      = size;
     header_ptr->allocated = true;
     
@@ -244,6 +257,18 @@ void free (void* ptr) {
     ERROR("Double-free: ", (intptr_t)header_ptr);
   }
 
+  // remove header from allocated LL
+  if ( ptr->next != NULL) {
+    ptr->next->prev = ptr->prev;
+  }
+    
+  if ( ptr->prev != NULL ){
+    ptr->prev->next = ptr->next;
+  } else {
+    allocated_list_head = ptr->next;
+  }
+  
+  // add header to free LL
   header_ptr->next = free_list_head;
   free_list_head   = header_ptr;
   header_ptr->prev = NULL;
